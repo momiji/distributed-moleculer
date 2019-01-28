@@ -1,0 +1,22 @@
+{
+  "name": "test-moleculer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^2.19.0",
+    "death": "^1.1.0",
+    "minio": "^7.0.4",
+    "moleculer": "^0.13.5",
+    "nats": "^1.2.2",
+    "natsboard": "^5.0.0",
+    "pm2": "^3.2.9",
+    "pmx": "^1.6.7",
+    "winston": "^3.2.0"
+  }
+}
