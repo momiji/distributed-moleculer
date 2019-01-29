@@ -51,7 +51,7 @@ module.exports = {
     },
     {
       name: "z-nats-local-board",
-      script: "././node_modules/.bin/natsboard",
+      script: "./node_modules/.bin/natsboard",
       args: "--nats-mon-url http://localhost:10222 --port 3002",
       autorestart: true,
       watch: false,

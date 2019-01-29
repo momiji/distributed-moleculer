@@ -13,8 +13,11 @@
     "death": "^1.1.0",
     "minio": "^7.0.4",
     "moleculer": "^0.13.5",
+    "moleculer-repl": "^0.5.5",
     "nats": "^1.2.2",
     "natsboard": "^5.0.0",
+    "nedb": "^1.8.0",
+    "nedb-promises": "^3.0.2",
     "pm2": "^3.2.9",
     "pmx": "^1.6.7",
     "winston": "^3.2.0"

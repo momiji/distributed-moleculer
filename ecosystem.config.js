@@ -19,15 +19,15 @@ module.exports = {
       kill_timeout: 10000,
       exec_mode: "cluster",
     },
-    {
-      name: 'localstore',
-      script: './localstore.js',
-      autorestart: true,
-      watch: "localstore.js",
-      max_memory_restart: '1G',
-      kill_timeout: 10000,
-      exec_mode: "cluster",
-    },
+    // {
+    //   name: 'localstore',
+    //   script: './localstore.js',
+    //   autorestart: true,
+    //   watch: "localstore.js",
+    //   max_memory_restart: '1G',
+    //   kill_timeout: 10000,
+    //   exec_mode: "cluster",
+    // },
     {
       name: 'remotestore',
       script: './remotestore.js',
@@ -55,7 +55,7 @@ module.exports = {
     },
     {
       name: "nats-local-board",
-      script: "././node_modules/.bin/natsboard",
+      script: "./node_modules/.bin/natsboard",
       args: "--nats-mon-url http://localhost:8222 --port 3000",
       autorestart: true,
       watch: false,
@@ -63,11 +63,29 @@ module.exports = {
     },
     {
       name: "nats-remote-board",
-      script: "././node_modules/.bin/natsboard",
+      script: "./node_modules/.bin/natsboard",
       args: "--nats-mon-url http://localhost:9222 --port 3001",
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
     },
+    {
+      name: "minio",
+      script: "./minio",
+      args: "server ./data",
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '10G',
+    },
+    {
+      name: "consul",
+      script: "./consul",
+      args: "agent -dev"
+    },
+    {
+      name: "localstore",
+      script: "./consul",
+      args: "lock localstore node localstore.js"
+    }
   ],
 };

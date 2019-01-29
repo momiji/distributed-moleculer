@@ -1,14 +1,14 @@
 const program = require("commander");
 
 const common = {
+    nodeID: "common",
     logger: true,
-    logLevel: "info",
+    logLevel: "error",
     transporter: "nats://localhost:4222",
     skipProcessEventRegistration: true,
     retryPolicy: {
         enabled: true,
     },
-    logLevel: "info",
 };
 
 const controller = {
@@ -30,13 +30,11 @@ const remotestore = {
 const global = {
     nodeID: "global",
     logger: true,
-    logLevel: "info",
     transporter: "nats://localhost:5222",
     skipProcessEventRegistration: true,
     retryPolicy: {
         enabled: true,
     },
-    logLevel: "info",
 };
 
 const s3 = {

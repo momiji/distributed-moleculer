@@ -3,6 +3,27 @@ const os = require("os");
 const crypto = require("crypto");
 const util = require("util");
 const stream = require('stream');
+const winston = require("winston");
+const { format } = require("logform");
+const {SPLAT} = require('triple-beam');
+
+const alignedWithColorsAndTime = format.combine(
+    format((info,opts) => {
+        if (!info[SPLAT]) return info;
+        var s = info[SPLAT].map(s => util.inspect(s, { breakLength: Infinity })).join(" ");
+        info.message = util.format(info.message, s);
+        return info;
+    })(),
+    format((info,opts) => { info.level = info.level.toUpperCase() ; return info; })(),
+    format.colorize(),
+    format.timestamp(),
+    format.align(),
+    format.printf(info => { return `[${info.timestamp}] ${info.level}: ${info.message}` })
+)
+const logger = winston.createLogger({
+    format: alignedWithColorsAndTime,
+});
+logger.add(new winston.transports.Console);
 
 function to(promise) {
     return promise.then(
@@ -11,6 +32,10 @@ function to(promise) {
         }
     )
         .catch(err => [err]);
+}
+
+function promisify(obj, ...args) {
+    
 }
 
 function sleep(ms) {
@@ -49,4 +74,6 @@ module.exports = {
     uuid,
     pipeline,
     to,
+    logger,
+    promisify,
 };

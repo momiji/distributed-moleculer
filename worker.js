@@ -1,7 +1,6 @@
-const util = require("util");
 const { ServiceBroker } = require("moleculer");
 const { loadConfig } = require("./config");
-const { death, nodeid, exit, uuid, pipeline, to } = require("./utils");
+const { death, nodeid, exit, uuid, pipeline, to, logger } = require("./utils");
 const s3 = require("./s3");
 const fs = require("fs");
 
@@ -21,7 +20,7 @@ broker.createService({
     name: "worker",
     events: {
         async "worker.wakeup"() {
-            broker.logger.debug("wakeup");
+            logger.debug("wakeup");
             run();
         }
     },
@@ -30,70 +29,70 @@ broker.createService({
 async function success(task) {
     let err;
     task.result = "success";
-    broker.logger.info("success: ", task);
+    logger.info("success:", task);
     [err] = await to(broker.call("controller.resultTask", task));
-    if (err) { console.log(err); }
+    if (err) { logger.error(err); }
 }
 
 async function failure(task) {
     let err;
     task.result = "failure";
-    broker.logger.info("failure: ", task);
+    logger.info("failure:", task);
     [err] = await to(broker.call("controller.resultTask", task));
-    if (err) { console.log(err); }
+    if (err) { logger.error(err); }
 }
 
 // background job
 async function run() {
-    broker.logger.debug("run called");
+    logger.debug("run called");
 
     // return if already running - placed here are run is called async'd
     if (running) return;
 
     // starting loop
-    broker.logger.debug("run loop started");
+    logger.debug("run loop started");
     running = true;
     while (!exiting) {
         let err;
         // get a task to process
         let task;
         [err, task] = await to(broker.call("controller.getTask"));
-        if (err) { console.log(err); }
+        if (err) { logger.error(err); }
 
         // if no task, just go to sleep
         if (task == null) {
             running = false;
-            broker.logger.debug("run loop stopped");
+            logger.debug("run loop stopped");
             return;
         }
 
         // if task found, process it
-        broker.logger.info("task: ", task);
+        logger.info("task:", task);
 
         const tempInput = `/tmp/${uuid()}.in`;
         const tempOutput = `/tmp/${uuid()}.out`;
 
         // load file to tempInput
         let input;
-        [err, input] = await to(s3.readFile(task.s3input));
-        if (err) { console.log(err); failure(task); continue; }
+        [err, input] = await to(s3.readFile(task.input));
+        if (err) { logger.error(err); failure(task); continue; }
 
         [err] = await to(pipeline(
             input,
             fs.createWriteStream(tempInput),
         ));
-        if (err) { console.log(err); failure(task); continue; }
+        if (err) { logger.error(err); failure(task); continue; }
 
         // run something
         [err] = await to(pipeline(
             fs.createReadStream(tempInput),
             fs.createWriteStream(tempOutput),
         ));
-        if (err) { console.log(err); failure(task); continue; }
+        if (err) { logger.error(err); failure(task); continue; }
 
         // save file from tempOutput
-        [err] = await to(s3.writeFile(fs.createReadStream(tempOutput), task.s3output));
-        if (err) { console.log(err); failure(task); continue; }
+        [err] = await to(s3.writeFile(fs.createReadStream(tempOutput), task.output));
+        if (err) { logger.error(err); failure(task); continue; }
 
         // return result async, so we can start next task asap
         success(task);
@@ -116,7 +115,8 @@ startup();
 
 // SIGINT
 death((_, err) => {
-    if (err) { console.log(err); }
-    if (broker != null) broker.logger.info("Exiting, waiting for current process to finish");
+    exit(30000);
+    if (err) { logger.error(err); }
+    if (broker != null) logger.info("Exiting, waiting for current process to finish");
     exiting = true;
 });

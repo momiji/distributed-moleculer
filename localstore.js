@@ -1,27 +1,12 @@
 const { ServiceBroker } = require("moleculer");
 const { loadConfig } = require("./config");
-const { death, nodeid, exit, to } = require("./utils");
-const Probe = require('pmx').probe();
+const { death, nodeid, exit, to, logger } = require("./utils");
 const s3 = require("./s3");
+const datastore = require("./datastore");
 
 // variables
 let running = false;
 let exiting = false;
-const tasks = {
-    0: [],
-    1: [],
-    2: [],
-}
-const stats = {
-    count: 0,
-}
-
-var metric = Probe.metric({
-    name: 'Tasks',
-    value: function () {
-        return stats.count;
-    }
-});
 
 // create broker
 const config = {
@@ -35,59 +20,71 @@ broker.createService({
     name: "localstore",
     actions: {
         async newTask(ctx) {
-            let err;
-            const task = ctx.meta;
-            const filename = s3.newFilename();
-            task.s3input = `${filename}.in`;
-            task.s3output = `${filename}.out`;
-            [err] = await to(s3.writeFile(ctx.params, task.s3input));
-            if (err) { console.log(err); return null; }
-            broker.logger.info("newTask: ", task);
-            tasks[task.priority].push(task);
-            stats.count++;
-            return { ...task };
+            let err, task, filename;
+            task = ctx.meta;
+            filename = s3.newFilename();
+            task.input = `${filename}.in`;
+            task.output = `${filename}.out`;
+            //
+            [err] = await to(s3.writeFile(ctx.params, task.input));
+            if (err) { logger.error(err); return null; }
+            //
+            [err, task] = await to(datastore.insert(task));
+            if (err) { logger.error(err); return null; }
+            //
+            logger.info("newTask:", task);
+            return task;
         },
         async getTask() {
-            broker.logger.debug("getTask called");
-            const task = tasks[2].pop() || tasks[1].pop() || tasks[0].pop();
-            if (task != null) {
-                task.source = "local";
-                broker.logger.debug("getTask: ", task);
-                stats.count--;
-            }
+            let err, task;
+            [err, task] = await to(datastore.take());
+            if (err) { logger.error(err); return null; }
+            if (!task) return null;
+            //
+            task.source = "local";
+            logger.info("getTask:", task);
+            //
             return task;
         },
         async resultTask(ctx) {
-            const task = ctx.params;
-            broker.logger.info("resultTask: ", task);
+            let err, task;
+            task = ctx.params;
+            logger.info("resultTask:", task);
+            if (task.result === "success") {
+                [err] = await to(datastore.save(task));
+                if (err) { logger.error(err); return; }
+            } else {
+                [err] = await to(datastore.undo(task));
+                if (err) { logger.error(err); return; }
+            }
+            return;
         }
     },
 });
 
 // background job
 async function run() {
-    broker.logger.debug("run called");
+    logger.debug("run called");
 
     // return if already running - placed here are run is called async'd
     if (running) return;
 
     // starting loop
-    broker.logger.debug("run loop started");
+    logger.debug("run loop started");
     running = true;
     while (!exiting) {
-        let err;
-        const counts = {};
-        let max = -1;
-        for (let i of Object.keys(tasks)) {
-            const c = tasks[i].length;
-            if (c) {
-                counts[i] = c;
-                if (i > max) max = i | 0;
-            }
+        let err, stats;
+        //
+        if (!err) {
+            [err, stats] = await to(datastore.stats());
+            if (err) { logger.error(err); }
         }
-        counts.max = max;
-        [err] = await to(broker.call("remotestore.shareLog", { counts }));
-        if (err) { console.log(err); }
+        //
+        if (!err) {
+            [err] = await to(broker.call("remotestore.shareLog", stats));
+            if (err) { logger.error(err); }
+        }
+        //
         running = false;
         return;
     }
@@ -108,7 +105,8 @@ startup();
 
 // SIGINT
 death((_, err) => {
-    if (err) { console.log(err); }
-    if (broker != null) broker.logger.info("Exiting, waiting for current process to finish");
+    exit(5000);
+    if (err) { logger.error(err); }
+    if (broker != null) logger.info("Exiting, waiting for current process to finish (5s)");
     exiting = true;
 });
