@@ -21,7 +21,7 @@ const config = {
     ...loadConfig(),
     
 }
-config.nodeID = nodeid("api");
+config.nodeID = nodeid("test");
 const broker = new ServiceBroker(config);
 
 // background job
@@ -47,6 +47,7 @@ async function run() {
     for (let r of results) {
         if (r.e) logger.error(r.e);
         //console.log("waiting for:", r.v.output,++i,"/",m);
+        /*
         const filename = `./data/test/${r.v.output}`
         while (true) {
             if (fs.existsSync(filename)) {
@@ -54,6 +55,14 @@ async function run() {
                 if (data !== r.v.name) {
                     logger.error("=> does not match", r.v);
                 }
+                break;
+            }
+            await sleep(1000);
+        }
+        */
+        const filename = `/tmp/ocr-ms/moleculer/test/${r.v.output}`;
+        while (true) {
+            if (fs.existsSync(filename)) {
                 break;
             }
             await sleep(1000);

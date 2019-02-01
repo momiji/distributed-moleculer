@@ -1,0 +1,7 @@
+{
+  "disable_update_check": true,
+  "data_dir": "/tmp/ocr-ms/consul.d",
+  "ui": true,
+  "ports": { "dns": -1 },
+  "client_addr": "0.0.0.0"
+}

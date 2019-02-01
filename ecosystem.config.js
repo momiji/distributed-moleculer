@@ -19,28 +19,28 @@ module.exports = {
       kill_timeout: 10000,
       exec_mode: "cluster",
     },
-    // {
-    //   name: 'localstore',
-    //   script: './localstore.js',
-    //   autorestart: true,
-    //   watch: "localstore.js",
-    //   max_memory_restart: '1G',
-    //   kill_timeout: 10000,
-    //   exec_mode: "cluster",
-    // },
+    {
+      name: "localstore",
+      script: "./consul",
+      args: "lock localstore node localstore.js",
+      autorestart: true,
+      watch: "localstore.js",
+      kill_timeout: 10000,
+//      exec_mode: "cluster",
+    },
     {
       name: 'remotestore',
-      script: './remotestore.js',
+      script: "./consul",
+      args: 'lock remotestore node remotestore.js',
       autorestart: true,
       watch: "remotestore.js",
-      max_memory_restart: '1G',
       kill_timeout: 10000,
-      exec_mode: "cluster",
+//      exec_mode: "cluster",
     },
     {
       name: "nats-local",
       script: "./gnatsd",
-      args: "-p 4222 -cluster nats://localhost:4248 -m 8222",
+      args: "--config nats-local.conf",
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -48,7 +48,7 @@ module.exports = {
     {
       name: "nats-remote",
       script: "./gnatsd",
-      args: "-p 5222 -cluster nats://localhost:5248 -m 9222",
+      args: "--config nats-remote.conf",
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -56,7 +56,7 @@ module.exports = {
     {
       name: "nats-local-board",
       script: "./node_modules/.bin/natsboard",
-      args: "--nats-mon-url http://localhost:8222 --port 3000",
+      args: "--nats-mon-url http://localhost:8222 --port 8223",
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -64,28 +64,20 @@ module.exports = {
     {
       name: "nats-remote-board",
       script: "./node_modules/.bin/natsboard",
-      args: "--nats-mon-url http://localhost:9222 --port 3001",
+      args: "--nats-mon-url http://localhost:9222 --port 9223",
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
     },
     {
       name: "minio",
-      script: "./minio",
-      args: "server ./data",
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '10G',
+      script: "./start-minio.sh",
+      autorestart: true
     },
     {
       name: "consul",
-      script: "./consul",
-      args: "agent -dev"
-    },
-    {
-      name: "localstore",
-      script: "./consul",
-      args: "lock localstore node localstore.js"
+      script: "./start-consul.sh",
+      autorestart: true
     }
   ],
 };
