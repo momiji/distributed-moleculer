@@ -2,6 +2,7 @@ const program = require("commander");
 
 const common = {
     nodeID: "common",
+    site: "dev",
     logger: true,
     logLevel: "error",
     transporter: "nats://localhost:4222",
@@ -9,6 +10,10 @@ const common = {
     retryPolicy: {
         enabled: true,
     },
+};
+
+const api = {
+    nodeID: "api",
 };
 
 const controller = {
@@ -48,6 +53,7 @@ const s3 = {
 
 const configs = {
     common,
+    api,
     controller,
     worker,
     localstore,

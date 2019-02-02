@@ -1,0 +1,62 @@
+const util = require("util");
+const { ServiceBroker } = require("moleculer");
+const { loadConfig } = require("./config");
+const { death, nodeid, exit, to, logger } = require("./utils");
+
+// variables
+
+// create broker
+const config = {
+    ...loadConfig("api"),
+}
+config.nodeID = nodeid(config.nodeID);
+const broker = new ServiceBroker(config);
+
+// service: 
+broker.createService({
+    name: "api",
+    actions: {
+        async deleteTask(ctx) { //user,id
+            let err, task;
+            task = ctx.params;
+            logger.info("deleteTask:", task);
+            [err, task] = await to(broker.call("localstore.deleteTask", task));
+            if (err) { logger.error(err); return null; } //TODO return xxx if failed
+            return task;
+        },
+        async statusTask(ctx) { //user,id
+            let err, task;
+            task = ctx.params;
+            logger.info("statusTask:", task);
+            [err, task] = await to(broker.call("localstore.statusTask", task));
+            if (err) { logger.error(err); return null; } //TODO define return with 'missing' if not exists ?
+            return task;
+
+        },
+        async resultTask(ctx) { //user,id
+            let err, task;
+            task = ctx.params;
+            logger.info("createTask:", task);
+            [err, task] = await to(broker.call("localstore.statusTask", task));
+            if (err) { logger.error(err); return null; } //TODO define return 404 if not exist 
+            return stream;
+        },
+
+    },
+});
+
+// start
+async function startup() {
+    await broker.start();
+}
+
+startup();
+
+// SIGINT
+death(async (_, err) => {
+    exit(5000);
+    if (err) { logger.error(err); }
+    if (broker != null) logger.info("Exiting, waiting for current process to finish");
+    await broker.stop();
+    process.exit();
+});

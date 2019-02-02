@@ -2,26 +2,26 @@
 cd "$(dirname "$0")"
 
 # dev conf
-IP=${HOSTNAME%%.*}
-MASTERS=( $IP )
+CONSUL_IP=$( gethostip -d ${HOSTNAME%%.*} )
+CONSUL_MASTERS=( $IP )
 
 # override for production
 source ./start.conf
 
 # compute
-QUORUM=${#MASTERS[@]}
+QUORUM=${#CONSUL_MASTERS[@]}
 QUORUM=$((1+QUORUM/2))
 ISMASTER=
-echo " ${MASTERS[@]} " | grep -q " $IP " && ISMASTER=1
+echo " ${CONSUL_MASTERS[@]} " | grep -q " $IP " && ISMASTER=1
 RETRY=
-for i in ${MASTERS[@]}; do
+for i in ${CONSUL_MASTERS[@]}; do
   RETRY="$RETRY -retry-join $i"
 done
 
 pkill consul
-
+set -x
 if [ -n "$ISMASTER" ]; then
-  ./consul agent -bind $IP -config-file ./consul.json $RETRY -server -bootstrap-expect $QUORUM "$@"
+  ./consul agent -bind $CONSUL_IP -config-file ./consul.json $RETRY -server -bootstrap-expect $QUORUM "$@"
 else
-  ./consul agent -bind $IP -config-file ./consul.json $RETRY "$@"
+  ./consul agent -bind $CONSUL_IP -config-file ./consul.json $RETRY "$@"
 fi

@@ -1,9 +1,9 @@
 const { ServiceBroker } = require("moleculer");
 const { loadConfig } = require("./config");
-const { nodeid, sleep, logger } = require("./utils");
+const { nodeid, sleep, logger, streamToString, to } = require("./utils");
 const program = require("commander");
-const fs = require("fs");
 const stream = require("stream");
+const s3 = require("./s3");
 
 let itemsToGenerate = 1;
 let itemsName = "test";
@@ -19,56 +19,100 @@ program.parse(process.argv);
 // create broker
 const config = {
     ...loadConfig(),
-    
+
 }
 config.nodeID = nodeid("test");
 const broker = new ServiceBroker(config);
 
 // background job
-const reflect = p => p.then(v => ({v, status: "fulfilled" }),
-                            e => ({e, status: "rejected" }));
+const reflect = (t, p) => p.then(
+    v => ({ v, t, status: "fulfilled" }),
+    e => ({ e, t, status: "rejected" })
+);
 const waitAll = a => Promise.all(a.map(reflect));
 
 async function run() {
-    const arr = [];
-    for (let i = 0; i<itemsToGenerate; i++) {
-        const name = `${itemsName}#${i+1}`;
+    let arr = [];
+    for (let i = 0; i < itemsToGenerate; i++) {
+        const name = `${itemsName}#${i + 1}`;
         //const stream = fs.createReadStream("./gnatsd");
         const s = new stream.Readable();
         s.push(name);
         s.push(null);
-        const task = { priority: 0, name };
-        const p = broker.call("controller.newTask", s, { meta: task });
-        arr.push(p);
+        const task = { user: "test", name, priority: 0 };
+        arr.push(reflect('send', broker.call("controller.createTask", s, { meta: task })));
     }
-    const results = await waitAll(arr);
-    let i=0;
-    let m = results.length;
-    for (let r of results) {
-        if (r.e) logger.error(r.e);
-        //console.log("waiting for:", r.v.output,++i,"/",m);
-        /*
-        const filename = `./data/test/${r.v.output}`
-        while (true) {
-            if (fs.existsSync(filename)) {
-                const data = fs.readFileSync(filename).toString();
-                if (data !== r.v.name) {
-                    logger.error("=> does not match", r.v);
+    // wait for all tasks
+    let res = { created: { ok: 0, error: 0, null: 0, total: 0 }, results: { ok: 0, error: 0, total: 0 }, total: arr.length };
+    while (res.created.total < res.total || res.results.total < res.total) {
+        await sleep(1000);
+        arr = arr.filter(p => p.done !== 1);
+        for (let p of arr) {
+            if (p.done === 1) continue;
+            if (!p.isResolved()) continue;
+            p.done = 1;
+            p = await p;
+            if (res.total === 1) console.log(p);
+            if (p.t === "send") {
+                res.created.total++;
+                if (p.e) {
+                    logger.error(p.e);
+                    res.created.error++;
+                } else if (p.v == null) {
+                    logger.error("null found");
+                    res.created.null++;
+                } else {
+                    let [err, s] = await to(s3.readFile(p.v.input));
+                    if (err) {
+                        logger.error("s3 error:", err);
+                        res.created.error++;
+                    } else {
+                        let name = await streamToString(s);
+                        if (name !== p.v.name) {
+                            logger.error("not matching:", name, p.v.name);
+                            res.created.error++;
+                        } else {
+                            res.created.ok++;
+                            const task = p.v;
+                            arr.push(reflect('status', broker.call("controller.statusTask", task)));
+                        }
+                    }
                 }
-                break;
             }
-            await sleep(1000);
-        }
-        */
-        const filename = `/tmp/ocr-ms/moleculer/test/${r.v.output}`;
-        while (true) {
-            if (fs.existsSync(filename)) {
-                break;
+            if (p.t === "status") {
+                if (p.e) {
+                    logger.error(p.e);
+                } else if (p.v == null) {
+                    logger.error("null found");
+                } else if (p.v.status === "error") {
+                    logger.error("task error:", p.v.error)
+                    res.results.error++;
+                    res.results.total++;
+                } else if (p.v.status != "output") {
+                    const task = p.v;
+                    arr.push(reflect('status', broker.call("controller.statusTask", task)));
+                } else {
+                    res.results.total++;
+                    let [err, s] = await to(s3.readFile(p.v.input));
+                    if (err) {
+                        logger.error("s3 error:", err);
+                        res.results.error++;
+                    } else {
+                        let name = await streamToString(s);
+                        if (name !== p.v.name) {
+                            logger.error("not matching:", name, p.v.name);
+                            res.results.error++;
+                        } else {
+                            res.results.ok++;
+                        }
+                    }
+                    const task = p.v;
+                    broker.call("controller.deleteTask", task);
+                }
             }
-            await sleep(1000);
         }
+        logger.info("r:", res);
     }
-    // console.log("finished");
 }
 
 // start

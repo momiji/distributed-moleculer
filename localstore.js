@@ -15,48 +15,113 @@ const config = {
 config.nodeID = nodeid(config.nodeID);
 const broker = new ServiceBroker(config);
 
+toid = t => { t.id = `${config.site}:${t._id}`; return t; }
+fromid = t => { t._id = t.id.split(':')[1]; return t; }
+
 // service:
 broker.createService({
     name: "localstore",
     actions: {
-        async newTask(ctx) {
+        async createTask(ctx) {
             let err, task, filename;
             task = ctx.meta;
+            logger.info("create:", task);
+            //
             filename = s3.newFilename();
             task.input = `${filename}.in`;
             task.output = `${filename}.out`;
             //
-            [err] = await to(s3.writeFile(ctx.params, task.input));
-            if (err) { logger.error(err); return null; }
+            [err, etag] = await to(s3.writeFile(ctx.params, task.input));
+            if (err) { logger.error(err); throw err; }
             //
             [err, task] = await to(datastore.insert(task));
-            if (err) { logger.error(err); return null; }
+            if (err) { logger.error(err); throw err; }
             //
-            logger.info("newTask:", task);
+            task = toid(task);
+            //
+            logger.info("created:", task);
+            broker.broadcast("worker.wakeup");
+            //
             return task;
         },
-        async getTask() {
-            let err, task;
-            [err, task] = await to(datastore.take());
-            if (err) { logger.error(err); return null; }
-            if (!task) return null;
+        async deleteTask(ctx) {
+            let err, task, filename;
+            task = ctx.params;
+            logger.info("delete:", task);
+            task = fromid(task);
             //
-            task.source = "local";
-            logger.info("getTask:", task);
+            [err, task] = await to(datastore.delete(task));
+            if (err) { logger.error(err); throw err; }
             //
+            [err] = await to(s3.deleteFile(task.input));
+            if (err) { logger.error(err); }
+            [err] = await to(s3.deleteFile(task.output));
+            if (err) { logger.error(err); }
+            //
+            logger.info("deleted:", task);
+            return;
+        },
+        async statusTask(ctx) {
+            let err, task, filename;
+            task = ctx.params;
+            logger.info("status:", task);
+            //
+            task = fromid(task);
+            //
+            [err, task] = await to(datastore.select(task));
+            if (err) { logger.error(err); throw err; }
+            //
+            task = toid(task);
+            //
+            logger.info("statusd:", task);
             return task;
         },
         async resultTask(ctx) {
+            let err, task, filename;
+            task = ctx.params;
+            logger.info("result:", task);
+            //
+            task = fromid(task);
+            //
+            [err, task] = await to(datastore.select(task));
+            if (err) { logger.error(err); throw err; }
+            //
+            [err, stream] = await to(s3.readFile(task.input));
+            if (err) { logger.error(err); throw err; }
+            //
+            logger.info("resultd");
+            return stream;
+        },
+
+        // internal api
+        async pullTask() {
+            let err, task;
+            [err, task] = await to(datastore.take());
+            if (err) { logger.error(err);  err; }
+            if (!task) return null;
+            //
+            task = toid(task);
+            //
+            logger.info("pulled:", task);
+            //
+            return task;
+        },
+        async updateTask(ctx) {
             let err, task;
             task = ctx.params;
-            logger.info("resultTask:", task);
+            logger.info("update:", task);
+            //
+            task = fromid(task);
+            //
             if (task.result === "success") {
                 [err] = await to(datastore.save(task));
-                if (err) { logger.error(err); return; }
+                if (err) { logger.error(err); throw err; }
             } else {
                 [err] = await to(datastore.undo(task));
-                if (err) { logger.error(err); return; }
+                if (err) { logger.error(err); throw err; }
             }
+            //
+            logger.info("updated");
             return;
         }
     },

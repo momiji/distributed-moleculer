@@ -1,4 +1,5 @@
 const common = {
+    site: 'second',
     transporter: "nats://localhost:6222",
 };
 

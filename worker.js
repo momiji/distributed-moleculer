@@ -1,6 +1,6 @@
 const { ServiceBroker } = require("moleculer");
 const { loadConfig } = require("./config");
-const { death, nodeid, exit, uuid, pipeline, to, logger } = require("./utils");
+const { death, nodeid, exit, uuid, pipeline, to, logger, shortname } = require("./utils");
 const s3 = require("./s3");
 const fs = require("fs");
 
@@ -29,16 +29,19 @@ broker.createService({
 async function success(task) {
     let err;
     task.result = "success";
+    task.hostname = shortname();
     logger.info("success:", task);
-    [err] = await to(broker.call("controller.resultTask", task));
+    [err] = await to(broker.call("controller.updateTask", task));
     if (err) { logger.error(err); }
 }
 
-async function failure(task) {
+async function failure(task, error) {
     let err;
     task.result = "failure";
+    task.hostname = shortname();
+    task.error = error.message || error.code || error;
     logger.info("failure:", task);
-    [err] = await to(broker.call("controller.resultTask", task));
+    [err] = await to(broker.call("controller.updateTask", task));
     if (err) { logger.error(err); }
 }
 
@@ -53,10 +56,9 @@ async function run() {
     logger.debug("run loop started");
     running = true;
     while (!exiting) {
-        let err;
+        let err, task;
         // get a task to process
-        let task;
-        [err, task] = await to(broker.call("controller.getTask"));
+        [err, task] = await to(broker.call("controller.pullTask"));
         if (err) { logger.error(err); }
 
         // if no task, just go to sleep
@@ -69,33 +71,46 @@ async function run() {
         // if task found, process it
         logger.info("task:", task);
 
-        const tempInput = `/tmp/${uuid()}.in`;
-        const tempOutput = `/tmp/${uuid()}.out`;
-
-        // load file to tempInput
         let input;
-        [err, input] = await to(s3.readFile(task.input));
-        if (err) { logger.error(err); failure(task); continue; }
+        let tempName = uuid();
+        const tempInput = `/tmp/${tempName}.in`;
+        const tempOutput = `/tmp/${tempName}.out`;
 
-        [err] = await to(pipeline(
-            input,
-            fs.createWriteStream(tempInput),
-        ));
-        if (err) { logger.error(err); failure(task); continue; }
+        // get stream from s3
+        if (!err) {
+            [err, input] = await to(s3.readFile(task.input));
+        }
+        // save stream to tempInput
+        if (!err) {
+            [err] = await to(pipeline(
+                input,
+                fs.createWriteStream(tempInput),
+            ));
+        }
 
         // run something
-        [err] = await to(pipeline(
-            fs.createReadStream(tempInput),
-            fs.createWriteStream(tempOutput),
-        ));
-        if (err) { logger.error(err); failure(task); continue; }
+        if (!err) {
+            [err] = await to(pipeline(
+                fs.createReadStream(tempInput),
+                fs.createWriteStream(tempOutput),
+            ));
+        }
+        // save file to s3 from tempOutput
+        if (!err) {
+            [err] = await to(s3.writeFile(fs.createReadStream(tempOutput), task.output));
+        }
 
-        // save file from tempOutput
-        [err] = await to(s3.writeFile(fs.createReadStream(tempOutput), task.output));
-        if (err) { logger.error(err); failure(task); continue; }
+        // remove temp files
+        fs.unlink(tempInput, () => { });
+        fs.unlink(tempOutput, () => { });
 
         // return result async, so we can start next task asap
-        success(task);
+        if (err) {
+            failure(task, err);
+            logger.error(err);
+        } else {
+            success(task);
+        }
     }
 
     // exiting
@@ -107,15 +122,19 @@ async function run() {
 // start
 async function startup() {
     await broker.start();
-    run();
-    setInterval(run, 10000);
+    try {
+        run();
+    } catch (e) {
+        console.log(e);
+    }
+    setInterval(run, 1000);
 }
 
 startup();
 
 // SIGINT
 death((_, err) => {
-    exit(30000);
+    exit(1000);
     if (err) { logger.error(err); }
     if (broker != null) logger.info("Exiting, waiting for current process to finish");
     exiting = true;

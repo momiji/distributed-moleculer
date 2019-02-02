@@ -19,27 +19,27 @@ const broker = new ServiceBroker(config);
 const globalConfig = {
     ...loadConfig("global"),
 };
-globalConfig.nodeID = nodeid(globalName);
+globalConfig.nodeID = nodeid(`${globalConfig.nodeID}.${globalConfig.site}`);
 const globalBroker = new ServiceBroker(globalConfig);
 
 // service: 
 broker.createService({
     name: "remotestore",
     actions: {
-        async getTask() {
+        async pullTask() {
             let err;
-            logger.debug("getTask called");
+            logger.debug("pullTask called");
             let maxState = null;
             for (let state of Object.values(states)) {
-                if (state.counts.max >= 0) {
-                    if (!maxState || state.counts.max > maxState.counts.max) {
+                if (state.hasTasks >= 0) {
+                    if (!maxState || state.maxPriority > maxState.maxPriority) {
                         maxState = state;
                     }
                 }
             }
             if (maxState != null) {
-                const action = `${maxState.source}.getTask`;
-                const actionInput = `${maxState.source}.getTaskInput`;
+                const action = `global-${maxState.source}.pullTask`;
+                const actionInput = `global-${maxState.source}.pullTaskInput`;
                 let task;
                 [err, task] = await to(globalBroker.call(action));
                 if (err) { logger.error(err); return null; }
@@ -53,11 +53,12 @@ broker.createService({
             }
             return null;
         },
-        async resultTask(ctx) {
+        async updateTask(ctx) {
             let err;
             const task = ctx.params;
-            logger.info("resultTask:", task);
-            const action = `${task.source}.resultTask`;
+            logger.info("updateTask:", task);
+            const site = task.id.split(":")[0];
+            const action = `global-${site}.updateTask`;
             let output;
             if (task.result === "success") {
                 [err, output] = await to(s3.readFile(task.output));
@@ -68,9 +69,11 @@ broker.createService({
             }
             [err] = await to(globalBroker.call(action, output, { meta: task }));
             if (err) { logger.error(err); }
+            s3.deleteFile(task.input);
+            s3.deleteFile(task.output);
         },
         async shareLog(ctx) {
-            const state = { ...ctx.params, source: globalName };
+            const state = { ...ctx.params, source: globalConfig.site };
             logger.debug("shareLog:", state);
             globalBroker.broadcast("backlog.state", state);
         },
@@ -79,28 +82,26 @@ broker.createService({
 
 // global service:
 globalBroker.createService({
-    name: globalName,
+    name: `global-${globalConfig.site}`,
     actions: {
-        async getTask(ctx) {
-            let err;
-            logger.debug("getTask called");
-            let task;
-            [err, task] = await to(broker.call("localstore.getTask"));
+        async pullTask() {
+            let err, task;
+            logger.debug("pullTask called");
+            [err, task] = await to(broker.call("localstore.pullTask"));
             if (err) { logger.error(err); return null; }
             if (task == null) return null;
-            task.source = globalName;
             return task;
         },
-        async getTaskInput(ctx) {
+        async pullTaskInput(ctx) {
             let err;
             [err, input] = await to(s3.readFile(ctx.params.input));
             if (err) { logger.error(err); return null; }
             return input;
         },
-        async resultTask(ctx) {
+        async updateTask(ctx) {
             let err;
             const task = ctx.meta;
-            logger.debug("resultTask:", task);
+            logger.debug("updateTask:", task);
             if (task.result === "success") {
                 [err] = await to(s3.writeFile(ctx.params, ctx.meta.output));
                 if (err) {
@@ -108,13 +109,13 @@ globalBroker.createService({
                     task.result = "failure";
                 }
             }
-            [err] = await to(broker.call("localstore.resultTask", task));
+            [err] = await to(broker.call("localstore.updateTask", task));
             if (err) { logger.error(err); }
         }
     },
     events: {
         async "backlog.state"(state) {
-            if (state.source === globalName) return;
+            if (state.source === globalConfig.site) return;
             const now = new Date();
             state.date = now;
             logger.debug("state:", state);
@@ -124,7 +125,7 @@ globalBroker.createService({
                     states[state.source] = undefined;
                 }
             }
-            if (state.counts.max >= 0) {
+            if (state.hasTasks) {
                 broker.broadcast("worker.wakeup");
             }
         },
