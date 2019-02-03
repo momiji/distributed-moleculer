@@ -5,17 +5,21 @@ const Probe = require('pmx').probe();
 const fields = {
     user: 1,
     name: 1,
+    status: 1,
+    priority: 1,
     input: 1,
     output: 1,
-    status: 1,
     submitTime: 1,
     startTime: 1,
     nextTime: 1,
     duration: 1,
+    process: 1,
     tries: 1,
-    priority: 1,
     hostname: 1,
     error: 1,
+    parentId: 1,
+    childsTotal: 1,
+    childsCompleted: 1,
 };
 
 Probe.metric({ name: 'total', value: () => stats.total });
@@ -53,7 +57,7 @@ class DataStore {
     }
 
     // external api
-    async insert(item) {
+    async insert(item, parentId) {
         let err, task;
         task = {
             user: item.user,
@@ -62,10 +66,13 @@ class DataStore {
             priority: item.priority | 0,
             input: item.input,
             output: item.output,
-            tries: 0,
             submitTime: new Date(),
             startTime: null,
             nextTime: new Date(0),
+            duration: 0,
+            process: 0,
+            tries: 0,
+            parentId
         };
         [err, task] = await to(this.db.insert(task));
         if (err) { logger.error(err); throw err; }
@@ -108,7 +115,7 @@ class DataStore {
             if (!task) return null;
             //
             [err, task] = await to(this.db.update(
-                { _id: task._id, status: "input" },
+                { _id: task._id, status: { $in: ["input", "complete"] } },
                 {
                     $set: {
                         status: "work",
@@ -129,27 +136,115 @@ class DataStore {
     }
 
     async save(item) {
-        let err, task;
+        let err, task, parentTask;
         [err, task] = await to(this.db.findOne({ _id: item._id }));
         if (err) { logger.error(err); throw err; }
         if (!task) return;
         //
-        [err, task] = await to(this.db.update(
-            { _id: task._id },
-            {
-                $set: {
-                    status: "output",
-                    duration: new Date() - task.startTime,
-                    nextTime: null,
-                    error: null,
-                    hostname: item.hostname
+        // if status = work
+        //   if childs, status => wait, create childs
+        //   else status = output, update parent
+        // if status = complete
+        //   status => output
+        //   delete childs
+        if (task.status === "work") {
+            if (item.childs) {
+                // status => wait
+                [err, task] = await to(this.db.update(
+                    { _id: task._id },
+                    {
+                        $set: {
+                            status: "wait",
+                            process: new Date() - task.startTime,
+                            nextTime: null,
+                            error: null,
+                            hostname: item.hostname,
+                            childsCompleted: 0,
+                            childsTotal: item.childs.length,
+                        }
+                    },
+                    { returnUpdatedDocs: true }
+                ));
+                if (err) { logger.error(err); throw err; }
+                // create childs (after status=wait, as childs may start immediately)
+                for (child of item.childs) {
+                    [err] = await insert(child, item._id);
+                    if (err) { logger.error(err); throw err; }
+                }
+            } else {
+                // status => output
+                [err, task] = await to(this.db.update(
+                    { _id: task._id },
+                    {
+                        $set: {
+                            status: "output",
+                            duration: new Date() - task.submitTime,
+                            process: new Date() - task.startTime,
+                            nextTime: null,
+                            error: null,
+                            hostname: item.hostname
+                        }
+                    },
+                    { returnUpdatedDocs: true }
+                ));
+                if (err) { logger.error(err); throw err; }
+                //
+                stats.work--;
+                stats.output++;
+                // parent.completed++ and eventually parent.status => complete
+                if (task.parentId) {
+                    [err, parentTask] = await to(this.db.update(
+                        { _id: task.parentId, status: "wait" },
+                        {
+                            $inc: {
+                                process: task.duration,
+                                childsCompleted: 1,
+                            }
+                        },
+                        { returnUpdatedDocs: true }
+                    ));
+                    if (err) { logger.error(err); throw err; }
+                    if (parentTask.childsCompleted === parentTask.childsTotal) {
+                        [err, parentTask] = await to(this.db.update(
+                            { _id: task.parentId, status: "wait" },
+                            {
+                                $set: {
+                                    status: "complete"
+                                }
+                            },
+                            { returnUpdatedDocs: true }
+                        ));
+                        if (err) { logger.error(err); throw err; }
+                    }
                 }
             }
-        ));
-        if (err) { logger.error(err); throw err; }
+        }
+        if (task.status === "complete") {
+            // status => output
+            [err, task] = await to(this.db.update(
+                { _id: task._id },
+                {
+                    $set: {
+                        status: "output",
+                        duration: new Date() - task.submitTime,
+                        nextTime: null,
+                        error: null,
+                        hostname: item.hostname
+                    },
+                    $inc: {
+                        process: new Date() - item.startTime,
+                    }
+                },
+                { returnUpdatedDocs: true }
+            ));
+            if (err) { logger.error(err); throw err; }
+            //
+            stats.work--;
+            stats.output++;
+            // remove all childs
+            // TODO
+        }
         //
-        stats.work--;
-        stats.output++;
         return;
     }
 
@@ -160,7 +255,7 @@ class DataStore {
         if (!task) return;
         //
         if (task.tries < 10) {
-            task.status = "input";
+            task.status = task.childsTotal > 0 ? "complete" : "input";
             task.tries++;
         } else {
             task.status = "error";
