@@ -43,8 +43,8 @@ async function run() {
         arr.push(reflect('send', broker.call("controller.createTask", s, { meta: task })));
     }
     // wait for all tasks
-    let res = { created: { ok: 0, error: 0, null: 0, total: 0 }, results: { ok: 0, error: 0, total: 0 }, total: arr.length };
-    while (res.created.total < res.total || res.results.total < res.total) {
+    let res = { created: { ok: 0, error: 0, null: 0, count: 0 }, results: { ok: 0, error: 0, count: 0 }, total: arr.length };
+    while (res.created.count < res.total || res.results.count < res.created.ok) {
         await sleep(1000);
         arr = arr.filter(p => p.done !== 1);
         for (let p of arr) {
@@ -54,7 +54,7 @@ async function run() {
             p = await p;
             if (res.total === 1) console.log(p);
             if (p.t === "send") {
-                res.created.total++;
+                res.created.count++;
                 if (p.e) {
                     logger.error(p.e);
                     res.created.error++;
@@ -87,12 +87,12 @@ async function run() {
                 } else if (p.v.status === "error") {
                     logger.error("task error:", p.v.error)
                     res.results.error++;
-                    res.results.total++;
+                    res.results.count++;
                 } else if (p.v.status != "output") {
                     const task = p.v;
                     arr.push(reflect('status', broker.call("controller.statusTask", task)));
                 } else {
-                    res.results.total++;
+                    res.results.count++;
                     let [err, s] = await to(s3.readFile(p.v.input));
                     if (err) {
                         logger.error("s3 error:", err);

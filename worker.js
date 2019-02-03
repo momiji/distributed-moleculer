@@ -90,11 +90,17 @@ async function run() {
 
         // run something
         if (!err) {
-            [err] = await to(pipeline(
-                fs.createReadStream(tempInput),
-                fs.createWriteStream(tempOutput),
-            ));
+            try {
+                if (task.name.endsWith("#1")) throw new Error("stop");
+                [err] = await to(pipeline(
+                    fs.createReadStream(tempInput),
+                    fs.createWriteStream(tempOutput),
+                ));
+            } catch (e) {
+                err = e;
+            }
         }
+
         // save file to s3 from tempOutput
         if (!err) {
             [err] = await to(s3.writeFile(fs.createReadStream(tempOutput), task.output));
