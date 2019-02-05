@@ -38,7 +38,8 @@ function promisify(obj, ...args) {
 
 function sleep(ms) {
     return new Promise(resolve => {
-        setTimeout(resolve, ms)
+        if (ms === 0) resolve();
+        else setTimeout(resolve, ms);
     })
 }
 

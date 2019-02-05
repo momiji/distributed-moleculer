@@ -12,7 +12,7 @@ source ./start.conf
 QUORUM=${#CONSUL_MASTERS[@]}
 QUORUM=$((1+QUORUM/2))
 ISMASTER=
-echo " ${CONSUL_MASTERS[@]} " | grep -q " $IP " && ISMASTER=1
+echo " ${CONSUL_MASTERS[@]} " | grep -q " $CONSUL_IP " && ISMASTER=1
 RETRY=
 for i in ${CONSUL_MASTERS[@]}; do
   RETRY="$RETRY -retry-join $i"

@@ -1,6 +1,6 @@
 const { ServiceBroker } = require("moleculer");
 const { loadConfig } = require("./config");
-const { death, nodeid, exit, uuid, pipeline, to, logger, shortname } = require("./utils");
+const { death, nodeid, exit, uuid, pipeline, to, logger, shortname, sleep } = require("./utils");
 const s3 = require("./s3");
 const fs = require("fs");
 
@@ -91,7 +91,8 @@ async function run() {
         // run something
         if (!err) {
             try {
-                if (task.name.endsWith("#1")) throw new Error("stop");
+                // if (task.name.endsWith("#1")) throw new Error("stop");
+                await sleep(5000);
                 [err] = await to(pipeline(
                     fs.createReadStream(tempInput),
                     fs.createWriteStream(tempOutput),

@@ -35,7 +35,11 @@ shift = (offset, date) => new Date((date ? date : new Date()).getTime() + offset
 class DataStore {
     constructor() {
         this.db = nedb.create();
+        this.db.ensureIndex({fieldName: ['status','nextTime']});
         this.priorities = {};
+        this.cache = [];
+        this.index = 0;
+        this.date = 0;
     }
 
     updatePriorities(task, offset) {
@@ -104,14 +108,27 @@ class DataStore {
         //
         return task;
     }
+    
+    async cachetake() {
+      let err, tasks;
+      let now = new Date().getTime();
+      if (now > this.date || this.tasks.length == 0) {
+        [err, tasks] = await to(this.db.find({ status: "input", nextTime: { $lt: new Date() } }, fields).sort({ priority: -1, tries: -1 }).limit(100));
+        if (err) { logger.error(err); throw err; }
+        this.tasks = tasks;
+        this.date = now + 10000;
+      }
+      return this.tasks.pop();
+    }
 
     // internal api
     async take() {
         let err, task;
         while (true) {
-            [err, task] = await to(this.db.find({ status: "input", nextTime: { $lt: new Date() } }, fields).sort({ priority: -1, tries: -1 }).limit(1));
-            if (err) { logger.error(err); throw err; }
-            task = task[0];
+            //[err, task] = await to(this.db.find({ status: "input", nextTime: { $lt: new Date() } }, fields).sort({ priority: -1, tries: -1 }).limit(1));
+            //if (err) { logger.error(err); throw err; }
+            //task = task[0];
+            task = await this.cachetake();
             if (!task) return null;
             //
             [err, task] = await to(this.db.update(

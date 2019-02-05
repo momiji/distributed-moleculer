@@ -4,9 +4,11 @@ const { nodeid, sleep, logger, streamToString, to } = require("./utils");
 const program = require("commander");
 const stream = require("stream");
 const s3 = require("./s3");
+const pQueue = require("p-queue");
 
 let itemsToGenerate = 1;
 let itemsName = "test";
+let queue = new pQueue({concurrency: 10, xinterval: 1000, xintervalCap: 40 });
 
 program
     .command("* [name] [count]")
@@ -31,8 +33,9 @@ const reflect = (t, p) => p.then(
 );
 const waitAll = a => Promise.all(a.map(reflect));
 
+let arr = [];
+
 async function run() {
-    let arr = [];
     for (let i = 0; i < itemsToGenerate; i++) {
         const name = `${itemsName}#${i + 1}`;
         //const stream = fs.createReadStream("./gnatsd");
@@ -40,10 +43,21 @@ async function run() {
         s.push(name);
         s.push(null);
         const task = { user: "test", name, priority: 0 };
-        arr.push(reflect('send', broker.call("controller.createTask", s, { meta: task })));
+        //const p = reflect('send', broker.call("controller.createTask", s, { meta: task }));
+        //arr.push(reflect('send', broker.call("controller.createTask", s, { meta: task })));
+        queue.add(() => {
+            const p = reflect('send', broker.call("controller.createTask", s, { meta: task }));
+            arr.push(p);
+            return p;
+        });
+        //arr.push(p);
+        //await sleep(0);
     }
+}
+
+async function wait() {
     // wait for all tasks
-    let res = { created: { ok: 0, error: 0, null: 0, count: 0 }, results: { ok: 0, error: 0, count: 0 }, total: arr.length };
+    let res = { created: { ok: 0, error: 0, null: 0, count: 0 }, results: { ok: 0, error: 0, count: 0 }, total: itemsToGenerate };
     while (res.created.count < res.total || res.results.count < res.created.ok) {
         await sleep(1000);
         arr = arr.filter(p => p.done !== 1);
@@ -62,6 +76,8 @@ async function run() {
                     logger.error("null found");
                     res.created.null++;
                 } else {
+//                    res.created.error++;
+
                     let [err, s] = await to(s3.readFile(p.v.input));
                     if (err) {
                         logger.error("s3 error:", err);
@@ -77,6 +93,7 @@ async function run() {
                             arr.push(reflect('status', broker.call("controller.statusTask", task)));
                         }
                     }
+
                 }
             }
             if (p.t === "status") {
@@ -118,8 +135,11 @@ async function run() {
 // start
 async function startup() {
     await broker.start();
-    await run();
-    process.exit();
+    //run();
+    logger.info("Start");
+    wait().then(() => { process.exit(0); });
+    run();
+    //process.exit(0);
 }
 
 startup();
