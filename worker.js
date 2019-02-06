@@ -92,7 +92,7 @@ async function run() {
         if (!err) {
             try {
                 // if (task.name.endsWith("#1")) throw new Error("stop");
-                await sleep(5000);
+                await sleep(4000 + 2000*Math.random());
                 [err] = await to(pipeline(
                     fs.createReadStream(tempInput),
                     fs.createWriteStream(tempOutput),
