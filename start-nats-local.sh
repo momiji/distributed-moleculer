@@ -8,9 +8,7 @@ NATS_LOCAL_HTTP=8222
 NATS_LOCAL_ROUTES=()
 
 # override for production
-source ./start.conf
-
-# compute
+[ -f ./start.conf ] && source ./start.conf
 
 # run
 ./gnatsd --config <(

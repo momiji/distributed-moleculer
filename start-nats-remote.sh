@@ -8,7 +8,7 @@ NATS_REMOTE_HTTP=9222
 NATS_REMOTE_ROUTES=()
 
 # override for production
-source ./start.conf
+[ -f ./start.conf ] && source ./start.conf
 
 # compute
 

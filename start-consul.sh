@@ -3,10 +3,10 @@ cd "$(dirname "$0")"
 
 # dev conf
 CONSUL_IP=$( gethostip -d ${HOSTNAME%%.*} )
-CONSUL_MASTERS=( $IP )
+CONSUL_MASTERS=( $CONSUL_IP )
 
 # override for production
-source ./start.conf
+[ -f ./start.conf ] && source ./start.conf
 
 # compute
 QUORUM=${#CONSUL_MASTERS[@]}
@@ -18,6 +18,7 @@ for i in ${CONSUL_MASTERS[@]}; do
   RETRY="$RETRY -retry-join $i"
 done
 
+# run
 pkill consul
 set -x
 if [ -n "$ISMASTER" ]; then

@@ -7,8 +7,9 @@ MINIO_SECRET_KEY=test1234
 MINIO_SERVERS=( /tmp/ocr-ms/moleculer )
 
 # override for production
-source ./start.conf
+[ -f ./start.conf ] && source ./start.conf
 
+# run
 export MINIO_ACCESS_KEY
 export MINIO_SECRET_KEY
 ./minio server ${MINIO_SERVERS[@]}
